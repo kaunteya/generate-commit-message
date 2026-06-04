@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# gitmsg - Generate a one-line imperative commit message for staged files
+#          using Claude, then optionally commit with it.
+
+set -euo pipefail
+
+GREEN='\033[32m'
+RED='\033[31m'
+RESET='\033[0m'
+
+# Ensure we are inside a git repository
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	echo -e "${RED}Error: not inside a git repository.${RESET}" >&2
+	exit 1
+fi
+
+# Ensure there are staged files
+if git diff --cached --quiet; then
+	echo -e "${RED}Error: no staged files. Stage changes with 'git add' first.${RESET}" >&2
+	exit 1
+fi
+
+# Generate the commit message
+gitmessage=$(claude --model claude-haiku-4-5 -p "Generate 1-line imperative commit message for staged files. Generated text should be exactly one line. No decorations")
+
+if [ -z "$gitmessage" ]; then
+	echo -e "${RED}Error: failed to generate a commit message.${RESET}" >&2
+	exit 1
+fi
+
+echo -e "${GREEN}${gitmessage}${RESET}"
+
+# Prompt the user to commit (Enter defaults to yes)
+printf "Commit with this message? [Y/n] "
+read -r reply
+case "$reply" in
+	"" | [yY] | [yY][eE][sS])
+		git commit -m "$gitmessage"
+		;;
+	*)
+		echo "Aborted."
+		;;
+esac
