@@ -21,8 +21,14 @@ if git diff --cached --quiet; then
 	exit 1
 fi
 
+# Collect the staged diff, excluding noisy/generated files. Passing the diff
+# inline keeps claude single-turn (no tool calls), which is much faster.
+diff=$(git diff --cached -- . ':!*.lock' ':!*.lockb' ':!package-lock.json' ':!yarn.lock')
+
 # Generate the commit message
-gitmessage=$(claude --model claude-haiku-4-5 -p "Generate 1-line imperative commit message for staged files. Generated text should be exactly one line. No decorations")
+gitmessage=$(claude --model claude-haiku-4-5 --allowed-tools "" -p "Generate a 1-line imperative commit message for this staged diff. Output exactly one line. No decorations.
+
+$diff" </dev/null)
 
 if [ -z "$gitmessage" ]; then
 	echo -e "${RED}Error: failed to generate a commit message.${RESET}" >&2
