@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# install.sh - Install the gitmsg script so it can be run as a command.
+# install.sh - Install the generate-commit-message script so it can be run as a command.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$SCRIPT_DIR/gitmsg"
+SRC="$SCRIPT_DIR/generate-commit-message"
 
 # Pick an install location: prefer /usr/local/bin, fall back to ~/.local/bin
 if [ -w /usr/local/bin ] 2>/dev/null; then
@@ -15,11 +15,11 @@ else
 fi
 
 mkdir -p "$DEST_DIR"
-DEST="$DEST_DIR/gitmsg"
+DEST="$DEST_DIR/generate-commit-message"
 
 install -m 0755 "$SRC" "$DEST"
 
-echo "Installed gitmsg to $DEST"
+echo "Installed generate-commit-message to $DEST"
 
 # Warn if the install location is not on PATH
 case ":$PATH:" in

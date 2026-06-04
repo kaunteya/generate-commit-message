@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# gitmsg - Generate a one-line imperative commit message for staged files
-#          using Claude, then optionally commit with it.
+# generate-commit-message - Generate a one-line imperative commit message for
+#                           staged files using Claude, then optionally commit.
 
 set -euo pipefail
 
