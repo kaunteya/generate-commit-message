@@ -13,6 +13,16 @@ force=false
 for arg in "$@"; do
 	case "$arg" in
 		-f) force=true ;;
+		--help)
+			echo "Usage: generate-commit-message [-f]"
+			echo ""
+			echo "Generate a commit message for staged changes using Claude."
+			echo ""
+			echo "Options:"
+			echo "  -f        Commit immediately without confirmation prompt"
+			echo "  --help    Show this help message"
+			exit 0
+			;;
 		*) echo -e "${RED}Unknown option: $arg${RESET}" >&2; exit 1 ;;
 	esac
 done
