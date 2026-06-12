@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 #
 # generate-commit-message - Generate a one-line imperative commit message for
-#                           staged files using Claude, then optionally commit.
+#                           staged files using a local Ollama model, then
+#                           optionally commit.
 
 set -euo pipefail
 
 GREEN='\033[32m'
 RED='\033[31m'
+ORANGE='\033[38;5;208m'
 RESET='\033[0m'
+
+# Ollama model to use. Override with the OLLAMA_MODEL environment variable.
+OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
 
 force=false
 for arg in "$@"; do
@@ -16,11 +21,14 @@ for arg in "$@"; do
 		--help)
 			echo "Usage: generate-commit-message [-f]"
 			echo ""
-			echo "Generate a commit message for staged changes using Claude."
+			echo "Generate a commit message for staged changes using a local Ollama model."
 			echo ""
 			echo "Options:"
 			echo "  -f        Commit immediately without confirmation prompt"
 			echo "  --help    Show this help message"
+			echo ""
+			echo "Environment:"
+			echo "  OLLAMA_MODEL    Ollama model to use (default: llama3.2)"
 			exit 0
 			;;
 		*) echo -e "${RED}Unknown option: $arg${RESET}" >&2; exit 1 ;;
@@ -39,17 +47,58 @@ if git diff --cached --quiet; then
 	exit 1
 fi
 
-# Collect the staged diff, excluding noisy/generated files. Passing the diff
-# inline keeps claude single-turn (no tool calls), which is much faster.
+# Ensure the ollama CLI is available
+if ! command -v ollama >/dev/null 2>&1; then
+	echo -e "${RED}Error: 'ollama' not found on PATH. Install it from https://ollama.com${RESET}" >&2
+	exit 1
+fi
+
+# Announce what we're about to do, including the Ollama version.
+ollama_version=$(ollama --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1)
+echo "Generating commit message using ${OLLAMA_MODEL} version ${ollama_version:-unknown}"
+
+# Ensure the Ollama server is reachable; start it in the background if not.
+# Ollama unloads idle models on its own (keep_alive), so we don't stop it here.
+if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
+	echo -e "${ORANGE}Loading ollama...${RESET}"
+	ollama serve >/dev/null 2>&1 &
+	for _ in $(seq 1 25); do
+		curl -fsS http://localhost:11434/api/version >/dev/null 2>&1 && break
+		sleep 0.2
+	done
+	if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
+		echo -e "${RED}Error: could not start the Ollama server.${RESET}" >&2
+		exit 1
+	fi
+fi
+
+# Collect the staged diff, excluding noisy/generated files.
 diff=$(git diff --cached -- . ':!*.lock' ':!*.lockb' ':!package-lock.json' ':!yarn.lock')
 
-# Generate the commit message
-gitmessage=$(claude --model claude-haiku-4-5 --allowed-tools "" -p "Generate a 1-line imperative commit message for this staged diff. Output exactly one line. No decorations.
+# Generate the commit message with the local Ollama model. The prompt and diff
+# are piped via stdin to avoid issues with special characters in the diff.
+prompt="Generate a 1-line imperative commit message for this staged diff. Output exactly one line. No decorations, no quotes, no explanation.
 
-$diff" </dev/null)
+$diff"
+
+# ollama run emits ANSI cursor/erase codes (e.g. its spinner) even when piped,
+# so strip those control sequences and carriage returns from the output. sed
+# reads all input, so this pipe won't SIGPIPE ollama.
+raw=$(printf '%s' "$prompt" | ollama run "$OLLAMA_MODEL" 2>/dev/null \
+	| LC_ALL=C sed -e $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' -e 's/\r//g')
+
+# Take the first non-blank line of the model's output. Done on the captured
+# variable (not piped from ollama) to avoid SIGPIPE aborting the script.
+gitmessage=""
+while IFS= read -r line; do
+	if [ -n "${line//[[:space:]]/}" ]; then
+		gitmessage=$line
+		break
+	fi
+done <<< "$raw"
 
 if [ -z "$gitmessage" ]; then
-	echo -e "${RED}Error: failed to generate a commit message.${RESET}" >&2
+	echo -e "${RED}Error: failed to generate a commit message (model: $OLLAMA_MODEL).${RESET}" >&2
 	exit 1
 fi
 
