@@ -179,11 +179,11 @@ fi
 # variability) without leaving the prompt; the keypress is read a single
 # character at a time so space alone triggers it.
 while true; do
-	printf "Commit? [Y]es / [n]o / [e]dit / [space] regenerate "
+	printf "Commit? [Enter] yes / [n]o / [space] regenerate "
 	IFS= read -rsn1 reply
 	echo
 	case "$reply" in
-		"" | [yY])
+		"")
 			git commit -m "$gitmessage"
 			break
 			;;
@@ -191,17 +191,6 @@ while true; do
 			echo -e "${ORANGE}Regenerating...${RESET}"
 			generate_message 0.6
 			echo -e "${GREEN}${gitmessage}${RESET}"
-			;;
-		[eE])
-			# Let the user edit the generated message, then commit with the result.
-			read -r -e -i "$gitmessage" -p "Edit message: " edited
-			edited=${edited:-$gitmessage}
-			if [ -z "${edited//[[:space:]]/}" ]; then
-				echo "Aborted: empty commit message."
-			else
-				git commit -m "$edited"
-			fi
-			break
 			;;
 		*)
 			echo "Aborted."

@@ -2,6 +2,31 @@
 
 A shell script that uses a local [Ollama](https://ollama.com) LLM to generate a one-line imperative commit message from your staged git diff, then lets you commit with it in one keystroke.
 
+## Usage
+
+Stage your changes, then run:
+
+```sh
+git add <files>
+generate-commit-message
+```
+
+Example session:
+
+```
+$ git add src/parser.swift
+$ generate-commit-message
+Add recursive descent parser for expression nodes
+Commit? [Enter] yes / [n]o / [space] regenerate
+[main a3f91bc] Add recursive descent parser for expression nodes
+```
+
+At the prompt (a single keypress):
+
+- `Enter` — commit with the message
+- `n` — abort without committing
+- `space` — regenerate a fresh suggestion (uses a higher temperature for variety)
+
 ## How it works
 
 1. Reads the staged diff (`git diff --cached`)
@@ -30,32 +55,6 @@ If `~/.local/bin` is not on your PATH, add this to `~/.zshrc`:
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
-
-## Usage
-
-Stage your changes, then run:
-
-```sh
-git add <files>
-generate-commit-message
-```
-
-Example session:
-
-```
-$ git add src/parser.swift
-$ generate-commit-message
-Add recursive descent parser for expression nodes
-Commit? [Y]es / [n]o / [e]dit / [space] regenerate
-[main a3f91bc] Add recursive descent parser for expression nodes
-```
-
-At the prompt (a single keypress, no Enter needed):
-
-- `y` or Enter — commit with the message
-- `n` — abort without committing
-- `e` — edit the message inline, then commit
-- `space` — regenerate a fresh suggestion (uses a higher temperature for variety)
 
 ## Configuration
 
