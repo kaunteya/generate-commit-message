@@ -17,15 +17,15 @@ Example session:
 $ git add src/parser.swift
 $ generate-commit-message
 Add recursive descent parser for expression nodes
-Commit? [Enter] yes / [n]o / [space] regenerate
+Commit? [Enter] yes / [space] regenerate (Ctrl-C to abort)
 [main a3f91bc] Add recursive descent parser for expression nodes
 ```
 
 At the prompt (a single keypress):
 
 - `Enter` — commit with the message
-- `n` — abort without committing
 - `space` — regenerate a fresh suggestion (uses a higher temperature for variety)
+- `Ctrl-C` — abort without committing
 
 ## How it works
 

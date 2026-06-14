@@ -9,6 +9,9 @@ set -euo pipefail
 GREEN='\033[32m'
 RED='\033[31m'
 ORANGE='\033[38;5;208m'
+CYAN='\033[36m'
+DIM='\033[2m'
+BOLD='\033[1m'
 RESET='\033[0m'
 
 # Ollama model to use. Override with the OLLAMA_MODEL environment variable.
@@ -179,7 +182,7 @@ fi
 # variability) without leaving the prompt; the keypress is read a single
 # character at a time so space alone triggers it.
 while true; do
-	printf "Commit? [Enter] yes / [n]o / [space] regenerate "
+	printf "%b" "${DIM}└─${RESET} ${BOLD}${GREEN}⏎${RESET} commit   ${BOLD}${CYAN}␣${RESET} regenerate   ${BOLD}${RED}^C${RESET} ${DIM}abort${RESET}  "
 	IFS= read -rsn1 reply
 	echo
 	case "$reply" in
@@ -193,8 +196,7 @@ while true; do
 			echo -e "${GREEN}${gitmessage}${RESET}"
 			;;
 		*)
-			echo "Aborted."
-			break
+			# Ignore any other key; abort is Ctrl-C only.
 			;;
 	esac
 done
