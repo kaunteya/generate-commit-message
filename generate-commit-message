@@ -110,65 +110,89 @@ $stat
 Diff:
 $diff"
 
-# Call the generate API directly (instead of 'ollama run') so we can set a
-# system role, a low temperature for consistency, and a larger context window
-# than the 2048-token default that would otherwise truncate real diffs.
-payload=$(jq -n \
-	--arg model "$OLLAMA_MODEL" \
-	--arg system "$system" \
-	--arg prompt "$prompt" \
-	'{model: $model, system: $system, prompt: $prompt, stream: false,
-	  options: {temperature: 0.2, top_p: 0.9, num_ctx: 8192}}')
+# Generate a commit message into the global $gitmessage. Takes a temperature so
+# the first pass can be deterministic while regenerations explore alternatives.
+# Calls the generate API directly (instead of 'ollama run') so we can set a
+# system role, the temperature, a random seed, and a larger context window than
+# the 2048-token default that would otherwise truncate real diffs.
+generate_message() {
+	local temperature="$1"
+	local payload response apierror raw line
 
-# Don't use curl's -f here: on errors (e.g. an un-pulled model returns 404) we
-# still want the response body so we can show Ollama's own error message.
-response=$(curl -sS http://localhost:11434/api/generate -d "$payload" 2>/dev/null || true)
+	payload=$(jq -n \
+		--arg model "$OLLAMA_MODEL" \
+		--arg system "$system" \
+		--arg prompt "$prompt" \
+		--argjson temperature "$temperature" \
+		--argjson seed "$RANDOM" \
+		'{model: $model, system: $system, prompt: $prompt, stream: false,
+		  options: {temperature: $temperature, top_p: 0.9, num_ctx: 8192, seed: $seed}}')
 
-# Surface a clear, actionable message when the model isn't installed.
-apierror=$(printf '%s' "$response" | jq -r '.error // empty' 2>/dev/null || true)
-if [ -n "$apierror" ]; then
-	echo -e "${RED}Error from Ollama: ${apierror}${RESET}" >&2
-	if printf '%s' "$apierror" | grep -qi 'not found'; then
-		echo -e "${ORANGE}Pull it first: ollama pull ${OLLAMA_MODEL}${RESET}" >&2
+	# Don't use curl's -f here: on errors (e.g. an un-pulled model returns 404)
+	# we still want the response body so we can show Ollama's own error message.
+	response=$(curl -sS http://localhost:11434/api/generate -d "$payload" 2>/dev/null || true)
+
+	# Surface a clear, actionable message when the model isn't installed.
+	apierror=$(printf '%s' "$response" | jq -r '.error // empty' 2>/dev/null || true)
+	if [ -n "$apierror" ]; then
+		echo -e "${RED}Error from Ollama: ${apierror}${RESET}" >&2
+		if printf '%s' "$apierror" | grep -qi 'not found'; then
+			echo -e "${ORANGE}Pull it first: ollama pull ${OLLAMA_MODEL}${RESET}" >&2
+		fi
+		exit 1
 	fi
-	exit 1
-fi
 
-raw=$(printf '%s' "$response" | jq -r '.response // empty' 2>/dev/null || true)
+	raw=$(printf '%s' "$response" | jq -r '.response // empty' 2>/dev/null || true)
 
-# Take the first non-blank line, then strip wrapping quotes/backticks and any
-# trailing period the model may have added despite the instructions.
-gitmessage=""
-while IFS= read -r line; do
-	if [ -n "${line//[[:space:]]/}" ]; then
-		gitmessage=$line
-		break
+	# Take the first non-blank line, then strip wrapping quotes/backticks and any
+	# trailing period the model may have added despite the instructions.
+	gitmessage=""
+	while IFS= read -r line; do
+		if [ -n "${line//[[:space:]]/}" ]; then
+			gitmessage=$line
+			break
+		fi
+	done <<< "$raw"
+
+	gitmessage="${gitmessage#"${gitmessage%%[![:space:]]*}"}"   # trim leading space
+	gitmessage="${gitmessage%"${gitmessage##*[![:space:]]}"}"   # trim trailing space
+	gitmessage="${gitmessage#[\"\`\']}"                          # strip leading quote
+	gitmessage="${gitmessage%[\"\`\']}"                          # strip trailing quote
+	gitmessage="${gitmessage%.}"                                 # strip trailing period
+
+	if [ -z "$gitmessage" ]; then
+		echo -e "${RED}Error: failed to generate a commit message (model: $OLLAMA_MODEL).${RESET}" >&2
+		exit 1
 	fi
-done <<< "$raw"
+}
 
-gitmessage="${gitmessage#"${gitmessage%%[![:space:]]*}"}"   # trim leading space
-gitmessage="${gitmessage%"${gitmessage##*[![:space:]]}"}"   # trim trailing space
-gitmessage="${gitmessage#[\"\`\']}"                          # strip leading quote
-gitmessage="${gitmessage%[\"\`\']}"                          # strip trailing quote
-gitmessage="${gitmessage%.}"                                 # strip trailing period
-
-if [ -z "$gitmessage" ]; then
-	echo -e "${RED}Error: failed to generate a commit message (model: $OLLAMA_MODEL).${RESET}" >&2
-	exit 1
-fi
-
+# First pass: low temperature for an accurate, focused message.
+generate_message 0.2
 echo -e "${GREEN}${gitmessage}${RESET}"
 
 if $force; then
 	git commit -m "$gitmessage"
-else
-	printf "Commit with this message? [Y/n/e] "
-	read -r reply
+	exit 0
+fi
+
+# Confirmation loop. Pressing space regenerates a fresh suggestion (with more
+# variability) without leaving the prompt; the keypress is read a single
+# character at a time so space alone triggers it.
+while true; do
+	printf "Commit? [Y]es / [n]o / [e]dit / [space] regenerate "
+	IFS= read -rsn1 reply
+	echo
 	case "$reply" in
-		"" | [yY] | [yY][eE][sS])
+		"" | [yY])
 			git commit -m "$gitmessage"
+			break
 			;;
-		[eE] | [eE][dD][iI][tT])
+		" ")
+			echo -e "${ORANGE}Regenerating...${RESET}"
+			generate_message 0.6
+			echo -e "${GREEN}${gitmessage}${RESET}"
+			;;
+		[eE])
 			# Let the user edit the generated message, then commit with the result.
 			read -r -e -i "$gitmessage" -p "Edit message: " edited
 			edited=${edited:-$gitmessage}
@@ -177,9 +201,11 @@ else
 			else
 				git commit -m "$edited"
 			fi
+			break
 			;;
 		*)
 			echo "Aborted."
+			break
 			;;
 	esac
-fi
+done
