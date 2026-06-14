@@ -182,7 +182,7 @@ fi
 # variability) without leaving the prompt; the keypress is read a single
 # character at a time so space alone triggers it.
 while true; do
-	printf "%b" "${DIM}└─${RESET} ${BOLD}${GREEN}⏎${RESET} commit   ${BOLD}${CYAN}␣${RESET} regenerate   ${BOLD}${RED}^C${RESET} ${DIM}abort${RESET}  "
+	printf "%b" "${DIM}└─${RESET} ${BOLD}${GREEN}Enter ⏎${RESET} commit   ${BOLD}${CYAN}Space ␣${RESET} regenerate   ${BOLD}${RED}Ctrl-C ^C${RESET} ${DIM}abort${RESET}  "
 	IFS= read -rsn1 reply
 	echo
 	case "$reply" in
