@@ -6,13 +6,13 @@ A shell script that uses a local [Ollama](https://ollama.com) LLM to generate a 
 
 1. Reads the staged diff (`git diff --cached`)
 2. Starts the Ollama server if it isn't already running (no login daemon needed)
-3. Pipes the diff to a local Ollama model (`llama3.2` by default) — runs entirely on your machine, no network calls
+3. Pipes the diff to a local Ollama model (`qwen2.5-coder:7b` by default) — runs entirely on your machine, no network calls
 4. Prints the generated message in green
 5. Asks whether to run `git commit` with it (Enter defaults to yes)
 
 ## Requirements
 
-- [Ollama](https://ollama.com) (`ollama` on your PATH) with at least one model pulled, e.g. `ollama pull llama3.2`
+- [Ollama](https://ollama.com) (`ollama` on your PATH) with the default model pulled: `ollama pull qwen2.5-coder:7b`
 - git
 
 ## Installation
@@ -57,7 +57,7 @@ Pressing Enter (or `y`) commits. Any other input aborts without committing.
 Use a different model by setting the `OLLAMA_MODEL` environment variable:
 
 ```sh
-OLLAMA_MODEL=qwen2.5-coder generate-commit-message
+OLLAMA_MODEL=llama3.2 generate-commit-message
 ```
 
 ## Notes

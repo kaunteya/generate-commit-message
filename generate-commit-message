@@ -12,7 +12,7 @@ ORANGE='\033[38;5;208m'
 RESET='\033[0m'
 
 # Ollama model to use. Override with the OLLAMA_MODEL environment variable.
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5-coder:7b}"
 
 force=false
 for arg in "$@"; do
@@ -28,7 +28,7 @@ for arg in "$@"; do
 			echo "  --help    Show this help message"
 			echo ""
 			echo "Environment:"
-			echo "  OLLAMA_MODEL    Ollama model to use (default: llama3.2)"
+			echo "  OLLAMA_MODEL    Ollama model to use (default: qwen2.5-coder:7b)"
 			exit 0
 			;;
 		*) echo -e "${RED}Unknown option: $arg${RESET}" >&2; exit 1 ;;
@@ -71,23 +71,73 @@ if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
 	fi
 fi
 
-# Collect the staged diff, excluding noisy/generated files.
+# Collect the staged diff, excluding noisy/generated files. The --stat summary
+# gives the model the overall shape of the change even when the diff is large.
 diff=$(git diff --cached -- . ':!*.lock' ':!*.lockb' ':!package-lock.json' ':!yarn.lock')
+stat=$(git diff --cached --stat -- . ':!*.lock' ':!*.lockb' ':!package-lock.json' ':!yarn.lock')
 
-# Generate the commit message with the local Ollama model. The prompt and diff
-# are piped via stdin to avoid issues with special characters in the diff.
-prompt="Generate a 1-line imperative commit message for this staged diff. Output exactly one line. No decorations, no quotes, no explanation.
+# Keep the diff within the model's context window. A truncated-but-complete
+# prompt produces a far better message than one that silently overflows.
+max_chars="${GITMSG_MAX_DIFF_CHARS:-12000}"
+if [ "${#diff}" -gt "$max_chars" ]; then
+	diff="${diff:0:$max_chars}
 
+[diff truncated — see the file summary above for the full scope of changes]"
+fi
+
+# A focused system role plus explicit rules and examples steer small local
+# models much more reliably than a single terse instruction.
+system="You are a senior software engineer writing git commit messages. You produce one concise, accurate, imperative-mood subject line that captures the intent of a change, not a file-by-file listing."
+
+prompt="Write a single-line git commit message for the staged changes below.
+
+Rules:
+- Output exactly one line: the subject. No body, no quotes, no markdown, no prefix like 'Commit message:'.
+- Use the imperative mood: 'Add', 'Fix', 'Refactor', 'Remove' — never past tense.
+- Keep it under ~72 characters.
+- Capitalize the first word; no trailing period.
+- Summarize the overall intent and the 'why' where clear, not every edited line.
+- Be specific: name the feature, component, or bug, not vague words like 'update code'.
+
+Examples of good messages:
+- Add retry with backoff to the upload client
+- Fix off-by-one error in pagination offset
+- Remove unused legacy auth middleware
+
+Files changed:
+$stat
+
+Diff:
 $diff"
 
-# ollama run emits ANSI cursor/erase codes (e.g. its spinner) even when piped,
-# so strip those control sequences and carriage returns from the output. sed
-# reads all input, so this pipe won't SIGPIPE ollama.
-raw=$(printf '%s' "$prompt" | ollama run "$OLLAMA_MODEL" 2>/dev/null \
-	| LC_ALL=C sed -e $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' -e 's/\r//g')
+# Call the generate API directly (instead of 'ollama run') so we can set a
+# system role, a low temperature for consistency, and a larger context window
+# than the 2048-token default that would otherwise truncate real diffs.
+payload=$(jq -n \
+	--arg model "$OLLAMA_MODEL" \
+	--arg system "$system" \
+	--arg prompt "$prompt" \
+	'{model: $model, system: $system, prompt: $prompt, stream: false,
+	  options: {temperature: 0.2, top_p: 0.9, num_ctx: 8192}}')
 
-# Take the first non-blank line of the model's output. Done on the captured
-# variable (not piped from ollama) to avoid SIGPIPE aborting the script.
+# Don't use curl's -f here: on errors (e.g. an un-pulled model returns 404) we
+# still want the response body so we can show Ollama's own error message.
+response=$(curl -sS http://localhost:11434/api/generate -d "$payload" 2>/dev/null || true)
+
+# Surface a clear, actionable message when the model isn't installed.
+apierror=$(printf '%s' "$response" | jq -r '.error // empty' 2>/dev/null || true)
+if [ -n "$apierror" ]; then
+	echo -e "${RED}Error from Ollama: ${apierror}${RESET}" >&2
+	if printf '%s' "$apierror" | grep -qi 'not found'; then
+		echo -e "${ORANGE}Pull it first: ollama pull ${OLLAMA_MODEL}${RESET}" >&2
+	fi
+	exit 1
+fi
+
+raw=$(printf '%s' "$response" | jq -r '.response // empty' 2>/dev/null || true)
+
+# Take the first non-blank line, then strip wrapping quotes/backticks and any
+# trailing period the model may have added despite the instructions.
 gitmessage=""
 while IFS= read -r line; do
 	if [ -n "${line//[[:space:]]/}" ]; then
@@ -95,6 +145,12 @@ while IFS= read -r line; do
 		break
 	fi
 done <<< "$raw"
+
+gitmessage="${gitmessage#"${gitmessage%%[![:space:]]*}"}"   # trim leading space
+gitmessage="${gitmessage%"${gitmessage##*[![:space:]]}"}"   # trim trailing space
+gitmessage="${gitmessage#[\"\`\']}"                          # strip leading quote
+gitmessage="${gitmessage%[\"\`\']}"                          # strip trailing quote
+gitmessage="${gitmessage%.}"                                 # strip trailing period
 
 if [ -z "$gitmessage" ]; then
 	echo -e "${RED}Error: failed to generate a commit message (model: $OLLAMA_MODEL).${RESET}" >&2
