@@ -69,3 +69,9 @@ OLLAMA_MODEL=llama3.2 generate-commit-message
 - Lockfiles (`*.lock`, `package-lock.json`, `yarn.lock`) are excluded from the diff to keep the prompt focused and tokens low.
 - The script errors immediately if there are no staged files, if it's run outside a git repository, or if `ollama` is not installed.
 - The Ollama server is started on demand and left running; Ollama unloads idle models from memory on its own, so there's no need to run it as a login service.
+
+## Similar projects
+
+- [aicommits](https://github.com/Nutlope/aicommits) — AI commit messages via the OpenAI API
+- [OpenCommit](https://github.com/di-sukharev/opencommit) — auto-generates commits, with local Ollama support
+- [gptcommit](https://github.com/zurawiki/gptcommit) — a git prepare-commit-msg hook powered by OpenAI
